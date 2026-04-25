@@ -1,6 +1,6 @@
-import { createApp } from "./app";
-import { env } from "./config/env";
-import { disconnectPrisma, getPrisma } from "./lib/prisma";
+import { createApp } from "./app.js";
+import { env } from "./config/env.js";
+import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
 
 const DB_MAX_ATTEMPTS = 3;
 const DB_RETRY_DELAY_MS = 2_000;
