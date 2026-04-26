@@ -1,5 +1,6 @@
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
+import { logger } from "./lib/logger.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
 
 const DB_MAX_ATTEMPTS = 3;
@@ -24,6 +25,15 @@ const waitForDatabase = async () => {
       lastError = error;
 
       if (attempt < DB_MAX_ATTEMPTS) {
+        logger.warn(
+          {
+            attempt,
+            maxAttempts: DB_MAX_ATTEMPTS,
+            retryDelayMs: DB_RETRY_DELAY_MS,
+            err: error instanceof Error ? error : undefined,
+          },
+          "database readiness check failed; retrying",
+        );
         await sleep(DB_RETRY_DELAY_MS);
       }
     }
@@ -34,28 +44,36 @@ const waitForDatabase = async () => {
 
 const startServer = async () => {
   await waitForDatabase();
+  logger.info({ maxAttempts: DB_MAX_ATTEMPTS }, "database readiness check passed");
 
   const app = createApp();
   const server = app.listen(env.port, () => {
-    console.info(`API listening on port ${env.port}`);
+    logger.info({ port: env.port }, "api listening");
   });
 
   const shutdown = (signal: string) => {
-    console.info(`Received ${signal}, shutting down.`);
+    logger.info({ signal }, "shutdown signal received");
 
     server.close(async (serverError) => {
       if (serverError) {
-        console.error("Failed to close HTTP server cleanly.", serverError);
+        logger.error(
+          { signal, err: serverError },
+          "failed to close http server cleanly",
+        );
         process.exitCode = 1;
       }
 
       try {
         await disconnectPrisma();
       } catch (disconnectError) {
-        console.error("Failed to disconnect Prisma cleanly.", disconnectError);
+        logger.error(
+          { signal, err: disconnectError instanceof Error ? disconnectError : undefined },
+          "failed to disconnect prisma cleanly",
+        );
         process.exitCode = 1;
       }
 
+      logger.info({ signal, exitCode: process.exitCode ?? 0 }, "shutdown complete");
       process.exit();
     });
   };
@@ -65,7 +83,10 @@ const startServer = async () => {
 };
 
 void startServer().catch(async (error) => {
-  console.error("API startup failed.", error);
+  logger.error(
+    { err: error instanceof Error ? error : undefined },
+    "api startup failed",
+  );
   await disconnectPrisma().catch(() => undefined);
   process.exit(1);
 });

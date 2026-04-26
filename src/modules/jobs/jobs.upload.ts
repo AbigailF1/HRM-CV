@@ -6,6 +6,7 @@ import multer from "multer";
 import type { Request, Response } from "express";
 
 import { env } from "../../config/env.js";
+import { logger } from "../../lib/logger.js";
 import { ValidationError } from "../../shared/http/errors.js";
 import type { SavedResumeFile, UploadedResume } from "./jobs.types.js";
 
@@ -21,8 +22,19 @@ const upload = multer({
     files: 1,
     fileSize: env.uploads.maxResumeFileSizeBytes,
   },
-  fileFilter: (_req, file, callback) => {
+  fileFilter: (req, file, callback) => {
     if (!allowedResumeMimeTypes.has(file.mimetype)) {
+      req.log.warn(
+        {
+          requestId: req.requestId,
+          path: req.originalUrl,
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          sizeBytes: file.size,
+          failureReason: "INVALID_RESUME_FILE_TYPE",
+        },
+        "resume upload rejected for file type",
+      );
       callback(
         new ValidationError(
           "Resume must be a PDF, DOC, or DOCX file.",
@@ -57,6 +69,16 @@ export const runResumeUpload = (req: Request, res: Response) => {
 
       if (error instanceof multer.MulterError) {
         if (error.code === "LIMIT_FILE_SIZE") {
+          req.log.warn(
+            {
+              requestId: req.requestId,
+              path: req.originalUrl,
+              fileField: error.field,
+              sizeLimitBytes: env.uploads.maxResumeFileSizeBytes,
+              failureReason: error.code,
+            },
+            "resume upload rejected for file size",
+          );
           reject(
             new ValidationError(
               `Resume must be ${env.uploads.maxResumeFileSizeBytes} bytes or smaller.`,
@@ -66,10 +88,30 @@ export const runResumeUpload = (req: Request, res: Response) => {
           return;
         }
 
+        req.log.warn(
+          {
+            requestId: req.requestId,
+            path: req.originalUrl,
+            fileField: error.field,
+            failureReason: error.code,
+          },
+          "multipart upload request failed",
+        );
         reject(new ValidationError(error.message, "INVALID_MULTIPART_REQUEST"));
         return;
       }
 
+      req.log.warn(
+        {
+          requestId: req.requestId,
+          path: req.originalUrl,
+          fileName: req.file?.originalname,
+          mimeType: req.file?.mimetype,
+          sizeBytes: req.file?.size,
+          failureReason: error instanceof Error ? error.message : "unknown upload failure",
+        },
+        "resume upload rejected",
+      );
       reject(error);
     });
   });
@@ -91,20 +133,33 @@ export const getUploadedResume = (req: Request): UploadedResume => {
 };
 
 export const saveResumeFile = async (resume: UploadedResume): Promise<SavedResumeFile> => {
-  await mkdir(env.uploads.resumesDir, { recursive: true });
+  try {
+    await mkdir(env.uploads.resumesDir, { recursive: true });
 
-  const storedFileName = `${Date.now()}-${randomUUID()}-${sanitizeFileName(resume.originalName)}`;
-  const storagePath = join(env.uploads.resumesDir, storedFileName);
+    const storedFileName = `${Date.now()}-${randomUUID()}-${sanitizeFileName(resume.originalName)}`;
+    const storagePath = join(env.uploads.resumesDir, storedFileName);
 
-  await writeFile(storagePath, resume.buffer);
+    await writeFile(storagePath, resume.buffer);
 
-  return {
-    storagePath,
-    fileName: resume.originalName,
-    fileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/${storedFileName}`,
-    mimeType: resume.mimeType,
-    sizeBytes: resume.sizeBytes,
-  };
+    return {
+      storagePath,
+      fileName: resume.originalName,
+      fileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/${storedFileName}`,
+      mimeType: resume.mimeType,
+      sizeBytes: resume.sizeBytes,
+    };
+  } catch (error) {
+    logger.error(
+      {
+        fileName: resume.originalName,
+        mimeType: resume.mimeType,
+        sizeBytes: resume.sizeBytes,
+        err: error instanceof Error ? error : undefined,
+      },
+      "failed to persist uploaded resume",
+    );
+    throw error;
+  }
 };
 
 export const deleteSavedResumeFile = async (storagePath: string) => {
@@ -124,6 +179,14 @@ export const deleteSavedResumeFile = async (storagePath: string) => {
         continue;
       }
 
+      logger.error(
+        {
+          storagePath,
+          attempt: attempt + 1,
+          err: error instanceof Error ? error : undefined,
+        },
+        "failed to delete saved resume file",
+      );
       throw error;
     }
   }
