@@ -78,3 +78,182 @@ model Verification {
   @@index([identifier])
   @@map("verification")
 }
+
+// -- Jobs --
+
+// Job Enums
+enum JobStatus {
+  draft
+  open
+  closed
+  archived
+  @@map("job_status")
+}
+
+enum JobType {
+  full_time
+  part_time
+  contract
+  internship
+
+  @@map("job_type")
+}
+
+enum RemoteStatus {
+  onsite
+  hybrid
+  remote
+  @@map("remote_status")
+}
+
+enum ExperienceLevel {
+  junior
+  mid
+  senior
+  lead
+  @@map("experience_level")
+}
+
+enum ApplicationStatus {
+  new
+  screening
+  exam
+  interview
+  offer
+  hired
+  rejected
+  withdrawn
+  @@map("application_status")
+}
+
+enum QuestionType {
+  short_text
+  long_text
+  single_select
+  multi_select
+  number
+  date
+  url
+  checkbox
+  @@map("question_type")
+}
+
+// Job Models
+model Job {
+  id                 String           @id @default(uuid())
+  title              String
+  slug               String           @unique
+  description        String?
+  location           String?
+
+  type               JobType          @default(full_time)
+  status             JobStatus        @default(draft)
+  remoteStatus       RemoteStatus?    @map("remote_status")
+  experienceLevel    ExperienceLevel? @map("experience_level")
+
+  validThrough       DateTime?        @map("valid_through")
+  autoScoreOnApply   Boolean          @default(true) @map("auto_score_on_apply")
+
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  // Relations
+  applications       Application[]
+  questions          JobQuestion[]
+
+  @@index([status], map: "job_status_idx")
+  @@index([type], map: "job_type_idx")
+  @@index([createdAt], map: "job_created_at_idx")
+  @@map("job")
+}
+
+model Candidate {
+  id           String   @id @default(uuid())
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  email        String   @unique(map: "candidate_email_unique")
+  phone        String?
+  linkedinUrl  String?  @map("linkedin_url")
+  portfolioUrl String?  @map("portfolio_url")
+  
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  applications Application[]
+
+  @@index([createdAt], map: "candidate_created_at_idx")
+  @@map("candidate")
+}
+
+model Application {
+  id              String            @id @default(uuid())
+  jobId           String            @map("job_id")
+  candidateId     String            @map("candidate_id")
+  status          ApplicationStatus @default(new)
+  
+  resumeFileUrl   String            @map("resume_file_url")
+  resumeFileName  String            @map("resume_file_name")
+  resumeMimeType  String?           @map("resume_mime_type")
+  resumeSizeBytes Int?              @map("resume_size_bytes")
+  coverLetterText String?           @map("cover_letter_text")
+
+  submittedAt     DateTime?         @map("submitted_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  // Relations
+  job               Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate         Candidate          @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  questionResponses QuestionResponse[]
+
+  @@unique([jobId, candidateId], map: "application_job_candidate_unique")
+  @@unique([id, jobId], map: "application_id_job_id_unique")
+  @@index([jobId], map: "application_job_id_idx")
+  @@index([candidateId], map: "application_candidate_id_idx")
+  @@index([status], map: "application_status_idx")
+  @@index([jobId, submittedAt], map: "application_job_submitted_at_idx")
+  @@map("application")
+}
+
+model JobQuestion {
+  id           String       @id @default(uuid())
+  jobId        String       @map("job_id")
+  type         QuestionType @default(short_text)
+  label        String
+  description  String?
+  required     Boolean      @default(true)
+  options      Json?        
+  displayOrder Int          @default(0) @map("display_order")
+  
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  job       Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  responses QuestionResponse[]
+
+  @@unique([id, jobId], map: "job_question_id_job_id_unique")
+  @@index([jobId], map: "job_question_job_id_idx")
+  @@map("job_question")
+}
+
+model QuestionResponse {
+  id            String   @id @default(uuid())
+  applicationId String   @map("application_id")
+  questionId    String   @map("question_id")
+  jobId         String   @map("job_id")
+  value         Json     
+  
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  application Application @relation(fields: [applicationId, jobId], references: [id, jobId], onDelete: Cascade)
+  question    JobQuestion @relation(fields: [questionId, jobId], references: [id, jobId], onDelete: Cascade)
+
+  @@unique([applicationId, questionId], map: "question_response_application_question_unique")
+  @@index([applicationId], map: "question_response_application_id_idx")
+  @@index([jobId], map: "question_response_job_id_idx")
+  @@index([questionId], map: "question_response_question_id_idx")
+  @@map("question_response")
+}
