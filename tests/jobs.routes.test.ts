@@ -534,6 +534,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
         message: "Resume file is required.",
       },
     });
+    expect(response.headers["x-request-id"]).toEqual(expect.any(String));
   });
 
   it("rejects invalid resume file types for public applications", async () => {
@@ -564,6 +565,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
         message: "Resume must be a PDF, DOC, or DOCX file.",
       },
     });
+    expect(response.headers["x-request-id"]).toEqual(expect.any(String));
   });
 
   it("rejects oversized resume uploads for public applications", async () => {
@@ -596,6 +598,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
         message: `Resume must be ${env.uploads.maxResumeFileSizeBytes} bytes or smaller.`,
       },
     });
+    expect(response.headers["x-request-id"]).toEqual(expect.any(String));
   });
 
   it("rejects malformed question response payloads for public applications", async () => {
@@ -639,6 +642,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
         message: "Authentication is required.",
       },
     });
+    expect(response.headers["x-request-id"]).toEqual(expect.any(String));
   });
 
   it("rejects unauthenticated admin application review requests", async () => {
@@ -660,6 +664,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
           message: "Authentication is required.",
         },
       });
+      expect(response.headers["x-request-id"]).toEqual(expect.any(String));
     }
   });
 

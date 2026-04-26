@@ -1,8 +1,13 @@
 import type { NextFunction, Request, Response } from "express";
 
 import { AppError, isAppError } from "../errors.js";
+import { logger, isProduction } from "../../../lib/logger.js";
 
-export const notFoundHandler = (_req: Request, res: Response) => {
+export const notFoundHandler = (req: Request, res: Response) => {
+  if (!res.getHeader("x-request-id") && req.requestId) {
+    res.setHeader("x-request-id", req.requestId);
+  }
+
   res.status(404).json({
     error: {
       code: "NOT_FOUND",
@@ -13,7 +18,7 @@ export const notFoundHandler = (_req: Request, res: Response) => {
 
 export const errorHandler = (
   error: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ) => {
@@ -23,6 +28,30 @@ export const errorHandler = (
       : isAppError(error)
         ? error
         : new AppError("Internal server error");
+  const requestLogger = req.log ?? logger;
+  const logPayload = {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.originalUrl,
+    statusCode: appError.statusCode,
+    errorCode: appError.code,
+    err:
+      !isProduction || appError.statusCode >= 500
+        ? error instanceof Error
+          ? error
+          : undefined
+        : undefined,
+  };
+
+  if (!res.getHeader("x-request-id") && req.requestId) {
+    res.setHeader("x-request-id", req.requestId);
+  }
+
+  if (appError.statusCode >= 500) {
+    requestLogger.error(logPayload, appError.message);
+  } else {
+    requestLogger.warn(logPayload, appError.message);
+  }
 
   res.status(appError.statusCode).json({
     error: {
