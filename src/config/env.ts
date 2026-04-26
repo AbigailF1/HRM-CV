@@ -1,8 +1,10 @@
 import dotenv from "dotenv";
+import { resolve } from "node:path";
 
 dotenv.config();
 
 const DEFAULT_PORT = 3000;
+const DEFAULT_MAX_RESUME_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 
 const readRequiredEnv = (name: string) => {
   const value = process.env[name]?.trim();
@@ -28,6 +30,20 @@ const parsePort = (value: string | undefined) => {
   return parsedPort;
 };
 
+const parsePositiveInteger = (value: string | undefined, name: string, fallback: number) => {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsedValue = Number(value);
+
+  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+
+  return parsedValue;
+};
+
 const parseUrl = (value: string, name: string) => {
   try {
     return new URL(value);
@@ -51,6 +67,8 @@ const parseTrustedOrigins = (authOrigin: string) => {
 };
 
 const authUrl = parseUrl(readRequiredEnv("BETTER_AUTH_URL"), "BETTER_AUTH_URL");
+const uploadsRootDir = resolve(process.cwd(), process.env.UPLOADS_DIR?.trim() || "uploads");
+const uploadsPublicPath = "/uploads";
 
 export const env = Object.freeze({
   port: parsePort(process.env.PORT),
@@ -60,5 +78,16 @@ export const env = Object.freeze({
     origin: authUrl.origin,
     secret: readRequiredEnv("BETTER_AUTH_SECRET"),
     trustedOrigins: parseTrustedOrigins(authUrl.origin),
+  }),
+  uploads: Object.freeze({
+    rootDir: uploadsRootDir,
+    publicPath: uploadsPublicPath,
+    resumesDir: resolve(uploadsRootDir, "resumes"),
+    resumesPublicPath: `${uploadsPublicPath}/resumes`,
+    maxResumeFileSizeBytes: parsePositiveInteger(
+      process.env.RESUME_MAX_FILE_SIZE_BYTES,
+      "RESUME_MAX_FILE_SIZE_BYTES",
+      DEFAULT_MAX_RESUME_FILE_SIZE_BYTES,
+    ),
   }),
 });

@@ -6,3 +6,4 @@ dist/
 .pnpm-store/
 coverage/
 *.log
+uploads/
