@@ -1,5 +1,6 @@
 import type { auth } from "../lib/auth.js";
 import type { File as MulterFile } from "multer";
+import type { Logger } from "pino";
 
 type AuthSession = (typeof auth)["$Infer"]["Session"];
 
@@ -8,6 +9,8 @@ declare global {
     interface Request {
       auth?: AuthSession;
       file?: MulterFile;
+      log: Logger;
+      requestId: string;
     }
   }
 }
