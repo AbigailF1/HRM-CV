@@ -80,6 +80,34 @@ describe("jobs schema", () => {
     expect(() => parseUpdateJobInput({})).toThrow(ValidationError);
   });
 
+  it("returns a readable message for invalid job types", () => {
+    expect(() =>
+      parseCreateJobInput({
+        title: "Backend Engineer",
+        slug: "backend-engineer",
+        type: "full-time",
+      }),
+    ).toThrow("Job type must be one of: full_time, part_time, contract, internship.");
+  });
+
+  it("returns readable messages for other invalid enum values", () => {
+    expect(() => parseAdminJobsListQuery({ status: "pending" as never })).toThrow(
+      "Job status must be one of: draft, open, closed, archived.",
+    );
+
+    expect(() => parsePatchApplicationInput({ status: "pending" })).toThrow(
+      "Application status must be one of: new, screening, exam, interview, offer, hired, rejected, withdrawn.",
+    );
+
+    expect(() =>
+      parseCreateJobInput({
+        title: "Backend Engineer",
+        slug: "backend-engineer",
+        remoteStatus: "remote-first" as never,
+      }),
+    ).toThrow("Remote status must be one of: onsite, hybrid, remote.");
+  });
+
   it("parses valid create and patch payloads", () => {
     expect(
       parseCreateJobInput({

@@ -46,12 +46,27 @@ const slugSchema = z
     message: "slug must contain only lowercase letters, numbers, and hyphens.",
   });
 
-const jobTypeSchema = z.enum(jobTypeValues);
-const jobStatusSchema = z.enum(jobStatusValues);
-const remoteStatusSchema = z.enum(remoteStatusValues);
-const experienceLevelSchema = z.enum(experienceLevelValues);
-const applicationStatusSchema = z.enum(applicationStatusValues);
-const questionTypeSchema = z.enum(questionTypeValues);
+const enumMessage = (label: string, values: readonly string[]) =>
+  `${label} must be one of: ${values.join(", ")}.`;
+
+const jobTypeSchema = z.enum(jobTypeValues, {
+  error: enumMessage("Job type", jobTypeValues),
+});
+const jobStatusSchema = z.enum(jobStatusValues, {
+  error: enumMessage("Job status", jobStatusValues),
+});
+const remoteStatusSchema = z.enum(remoteStatusValues, {
+  error: enumMessage("Remote status", remoteStatusValues),
+});
+const experienceLevelSchema = z.enum(experienceLevelValues, {
+  error: enumMessage("Experience level", experienceLevelValues),
+});
+const applicationStatusSchema = z.enum(applicationStatusValues, {
+  error: enumMessage("Application status", applicationStatusValues),
+});
+const questionTypeSchema = z.enum(questionTypeValues, {
+  error: enumMessage("Question type", questionTypeValues),
+});
 
 const questionOptionSchema = z.object({
   label: z.string().trim().min(1).max(120),
