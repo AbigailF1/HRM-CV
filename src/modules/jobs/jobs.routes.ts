@@ -102,6 +102,24 @@ jobsRouter.get("/admin/applications/:id", requireAdminSession, async (req, res) 
   return sendOk(res, application);
 });
 
+jobsRouter.get("/admin/applications/:id/resume", requireAdminSession, async (req, res, next) => {
+  try {
+    const resume = await jobsService.getAdminApplicationResumeDownload(
+      getRouteParam(req.params.id),
+    );
+
+    res.attachment(resume.fileName);
+    res.type(resume.mimeType || "application/octet-stream");
+    res.sendFile(resume.storagePath, (error) => {
+      if (error) {
+        next(error);
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 jobsRouter.patch("/admin/applications/:id", requireAdminSession, async (req, res) => {
   const input = parsePatchApplicationInput(req.body);
   const application = await jobsService.updateAdminApplication(

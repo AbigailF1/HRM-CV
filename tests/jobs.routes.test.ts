@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 
 import request from "supertest";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -8,6 +7,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { env } from "../src/config/env";
 import { disconnectPrisma, getPrisma } from "../src/lib/prisma";
+import { resolveResumeStoragePath } from "../src/modules/jobs/jobs.upload";
 
 const describeIfDatabaseConfigured = process.env.DATABASE_URL ? describe : describe.skip;
 const prisma = getPrisma();
@@ -15,6 +15,31 @@ const jobSlugPrefix = "public-job-test";
 const adminEmailPrefix = "jobs-admin-test";
 const candidateEmailPrefix = "jobs-candidate-test";
 const testResumeBuffer = Buffer.from("%PDF-1.4 test resume");
+
+const parseBinaryResponse = (
+  response: NodeJS.ReadableStream,
+  callback: (error: Error | null, body: Buffer) => void,
+) => {
+  const chunks: Buffer[] = [];
+
+  response.on("data", (chunk) => {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  });
+  response.on("end", () => {
+    callback(null, Buffer.concat(chunks));
+  });
+  response.on("error", (error) => {
+    callback(error, Buffer.alloc(0));
+  });
+};
+
+const persistStoredResume = async (
+  storageKey: string,
+  contents: Buffer = testResumeBuffer,
+) => {
+  await mkdir(env.uploads.resumesDir, { recursive: true });
+  await writeFile(resolveResumeStoragePath(storageKey), contents);
+};
 
 const cleanupUploadedResumes = async () => {
   const applications = await prisma.application.findMany({
@@ -26,17 +51,14 @@ const cleanupUploadedResumes = async () => {
       },
     },
     select: {
-      resumeFileUrl: true,
+      resumeStorageKey: true,
     },
   });
 
   await Promise.all(
     applications.map(async (application) => {
       try {
-        const resumePath = new URL(application.resumeFileUrl).pathname;
-        const relativeResumePath = resumePath.replace(`${env.uploads.publicPath}/`, "");
-
-        await unlink(join(env.uploads.rootDir, relativeResumePath));
+        await unlink(resolveResumeStoragePath(application.resumeStorageKey));
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           throw error;
@@ -151,7 +173,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
       ],
     });
 
-    const response = await request(createApp()).get("/api/v1/jobs");
+    const response = await request(createApp()).get(`/api/v1/jobs?search=${jobSlugPrefix}`);
 
     expect(response.status).toBe(200);
     expect(response.body.meta).toEqual({
@@ -220,7 +242,9 @@ describeIfDatabaseConfigured("jobs routes", () => {
       })),
     });
 
-    const response = await request(createApp()).get("/api/v1/jobs?page=1&pageSize=500");
+    const response = await request(createApp()).get(
+      `/api/v1/jobs?search=${jobSlugPrefix}-page-cap&page=1&pageSize=500`,
+    );
 
     expect(response.status).toBe(200);
     expect(response.body.meta).toEqual({
@@ -383,7 +407,8 @@ describeIfDatabaseConfigured("jobs routes", () => {
     });
 
     expect(savedApplication.candidate.email).toBe(`${candidateEmailPrefix}+apply@example.com`);
-    expect(savedApplication.resumeFileUrl).toContain(`${env.uploads.resumesPublicPath}/`);
+    expect(savedApplication.resumeStorageKey).toMatch(/resume\.pdf$/);
+    expect(savedApplication.resumeStorageKey).not.toContain("://");
     expect(savedApplication.questionResponses).toHaveLength(2);
   });
 
@@ -652,11 +677,14 @@ describeIfDatabaseConfigured("jobs routes", () => {
     const detailResponse = await request(createApp()).get(
       `/api/v1/admin/applications/${randomUUID()}`,
     );
+    const resumeResponse = await request(createApp()).get(
+      `/api/v1/admin/applications/${randomUUID()}/resume`,
+    );
     const updateResponse = await request(createApp())
       .patch(`/api/v1/admin/applications/${randomUUID()}`)
       .send({ status: "screening" });
 
-    for (const response of [listResponse, detailResponse, updateResponse]) {
+    for (const response of [listResponse, detailResponse, resumeResponse, updateResponse]) {
       expect(response.status).toBe(401);
       expect(response.body).toEqual({
         error: {
@@ -691,7 +719,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
     });
 
     const response = await agent
-      .get("/api/v1/admin/jobs?status=draft&page=1&pageSize=10")
+      .get(`/api/v1/admin/jobs?status=draft&search=${jobSlugPrefix}-admin&page=1&pageSize=10`)
       .set("Origin", env.auth.origin);
 
     expect(response.status).toBe(200);
@@ -896,7 +924,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
           jobId: job.id,
           candidateId: firstCandidate.id,
           status: "screening",
-          resumeFileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/grace.pdf`,
+          resumeStorageKey: "grace.pdf",
           resumeFileName: "grace.pdf",
           resumeMimeType: "application/pdf",
           resumeSizeBytes: 1234,
@@ -907,7 +935,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
           jobId: job.id,
           candidateId: secondCandidate.id,
           status: "rejected",
-          resumeFileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/katherine.pdf`,
+          resumeStorageKey: "katherine.pdf",
           resumeFileName: "katherine.pdf",
           resumeMimeType: "application/pdf",
           resumeSizeBytes: 2345,
@@ -1001,7 +1029,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
         jobId: job.id,
         candidateId: candidate.id,
         status: "interview",
-        resumeFileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/ada-detail.pdf`,
+        resumeStorageKey: "ada-detail.pdf",
         resumeFileName: "ada-detail.pdf",
         resumeMimeType: "application/pdf",
         resumeSizeBytes: 4567,
@@ -1046,12 +1074,14 @@ describeIfDatabaseConfigured("jobs routes", () => {
           firstName: "Ada",
           linkedinUrl: "https://www.linkedin.com/in/ada-lovelace",
         }),
+        resumeDownloadUrl: `${env.auth.origin}/api/v1/admin/applications/${application.id}/resume`,
         resumeFileName: "ada-detail.pdf",
         resumeMimeType: "application/pdf",
         resumeSizeBytes: 4567,
         coverLetterText: "I would love to build reliable systems.",
       }),
     );
+    expect(response.body.data.resumeFileUrl).toBeUndefined();
     expect(response.body.data.questionResponses).toEqual([
       expect.objectContaining({
         value: 7,
@@ -1068,6 +1098,118 @@ describeIfDatabaseConfigured("jobs routes", () => {
         }),
       }),
     ]);
+  });
+
+  it("downloads a resume for an authenticated admin", async () => {
+    const agent = await createAuthenticatedAgent();
+    const job = await prisma.job.create({
+      data: {
+        id: randomUUID(),
+        title: "Admin Resume Download Role",
+        slug: `${jobSlugPrefix}-resume-download`,
+        status: "open",
+        type: "full_time",
+      },
+    });
+    const candidate = await prisma.candidate.create({
+      data: {
+        id: randomUUID(),
+        firstName: "Donald",
+        lastName: "Knuth",
+        email: `${candidateEmailPrefix}+resume-download@example.com`,
+      },
+    });
+    const storageKey = "resume-download.pdf";
+
+    await persistStoredResume(storageKey);
+
+    const application = await prisma.application.create({
+      data: {
+        id: randomUUID(),
+        jobId: job.id,
+        candidateId: candidate.id,
+        status: "screening",
+        resumeStorageKey: storageKey,
+        resumeFileName: "donald-knuth-resume.pdf",
+        resumeMimeType: "application/pdf",
+        resumeSizeBytes: testResumeBuffer.length,
+        submittedAt: new Date("2026-04-20T09:00:00.000Z"),
+      },
+    });
+
+    const response = await agent
+      .get(`/api/v1/admin/applications/${application.id}/resume`)
+      .set("Origin", env.auth.origin)
+      .buffer(true)
+      .parse(parseBinaryResponse);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-disposition"]).toContain("attachment;");
+    expect(response.headers["content-disposition"]).toContain("donald-knuth-resume.pdf");
+    expect(response.headers["content-type"]).toContain("application/pdf");
+    expect(Buffer.compare(response.body, testResumeBuffer)).toBe(0);
+  });
+
+  it("returns not found when an application resume is missing on disk", async () => {
+    const agent = await createAuthenticatedAgent();
+    const job = await prisma.job.create({
+      data: {
+        id: randomUUID(),
+        title: "Admin Resume Missing Role",
+        slug: `${jobSlugPrefix}-resume-missing`,
+        status: "open",
+        type: "full_time",
+      },
+    });
+    const candidate = await prisma.candidate.create({
+      data: {
+        id: randomUUID(),
+        firstName: "Edsger",
+        lastName: "Dijkstra",
+        email: `${candidateEmailPrefix}+resume-missing@example.com`,
+      },
+    });
+    const application = await prisma.application.create({
+      data: {
+        id: randomUUID(),
+        jobId: job.id,
+        candidateId: candidate.id,
+        status: "screening",
+        resumeStorageKey: "missing-resume.pdf",
+        resumeFileName: "missing-resume.pdf",
+        resumeMimeType: "application/pdf",
+        resumeSizeBytes: testResumeBuffer.length,
+        submittedAt: new Date("2026-04-19T09:00:00.000Z"),
+      },
+    });
+
+    const response = await agent
+      .get(`/api/v1/admin/applications/${application.id}/resume`)
+      .set("Origin", env.auth.origin);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: {
+        code: "RESUME_FILE_NOT_FOUND",
+        message: "Resume file not found.",
+      },
+    });
+  });
+
+  it("does not serve resumes from the old public uploads path", async () => {
+    const storageKey = "legacy-public-path.pdf";
+
+    await persistStoredResume(storageKey);
+
+    const response = await request(createApp()).get(`/uploads/resumes/${storageKey}`);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+      error: {
+        code: "NOT_FOUND",
+        message: "Not found",
+      },
+    });
   });
 
   it("updates an admin application status", async () => {
@@ -1095,7 +1237,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
         jobId: job.id,
         candidateId: candidate.id,
         status: "screening",
-        resumeFileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/barbara.pdf`,
+        resumeStorageKey: "barbara.pdf",
         resumeFileName: "barbara.pdf",
         resumeMimeType: "application/pdf",
         resumeSizeBytes: 3456,
@@ -1175,7 +1317,7 @@ describeIfDatabaseConfigured("jobs routes", () => {
         jobId: job.id,
         candidateId: candidate.id,
         status: "hired",
-        resumeFileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/margaret.pdf`,
+        resumeStorageKey: "margaret.pdf",
         resumeFileName: "margaret.pdf",
         resumeMimeType: "application/pdf",
         resumeSizeBytes: 5678,
