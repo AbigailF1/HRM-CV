@@ -119,7 +119,6 @@ export const adminApplicationSummarySelect = {
 export const adminApplicationDetailSelect = {
   ...adminApplicationSummarySelect,
   coverLetterText: true,
-  resumeFileUrl: true,
   resumeFileName: true,
   resumeMimeType: true,
   resumeSizeBytes: true,
@@ -142,6 +141,13 @@ export const adminApplicationDetailSelect = {
       },
     },
   },
+} satisfies Prisma.ApplicationSelect;
+
+export const adminApplicationResumeSelect = {
+  id: true,
+  resumeStorageKey: true,
+  resumeFileName: true,
+  resumeMimeType: true,
 } satisfies Prisma.ApplicationSelect;
 
 export type JobsRepository = {
@@ -168,6 +174,7 @@ export type JobsRepository = {
     totalItems: number;
   }>;
   findAdminApplicationById(id: string): Promise<AdminApplicationDetailRecord | null>;
+  findAdminApplicationResumeById(id: string): Promise<AdminApplicationResumeRecord | null>;
   updateAdminApplicationStatus(
     id: string,
     status: ApplicationStatusValue,
@@ -204,6 +211,10 @@ export type AdminApplicationSummaryRecord = Prisma.ApplicationGetPayload<{
 
 export type AdminApplicationDetailRecord = Prisma.ApplicationGetPayload<{
   select: typeof adminApplicationDetailSelect;
+}>;
+
+export type AdminApplicationResumeRecord = Prisma.ApplicationGetPayload<{
+  select: typeof adminApplicationResumeSelect;
 }>;
 
 export type CreateApplicationSubmissionInput = {
@@ -445,7 +456,7 @@ export const createJobsRepository = (prisma: PrismaClient = getPrisma()): JobsRe
             jobId: input.jobId,
             candidateId: candidate.id,
             status: "new",
-            resumeFileUrl: input.resume.fileUrl,
+            resumeStorageKey: input.resume.storageKey,
             resumeFileName: input.resume.fileName,
             resumeMimeType: input.resume.mimeType,
             resumeSizeBytes: input.resume.sizeBytes,
@@ -483,6 +494,12 @@ export const createJobsRepository = (prisma: PrismaClient = getPrisma()): JobsRe
       return prisma.application.findUnique({
         where: { id },
         select: adminApplicationDetailSelect,
+      });
+    },
+    async findAdminApplicationResumeById(id) {
+      return prisma.application.findUnique({
+        where: { id },
+        select: adminApplicationResumeSelect,
       });
     },
     async updateAdminApplicationStatus(id, status) {

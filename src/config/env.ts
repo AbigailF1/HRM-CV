@@ -68,7 +68,6 @@ const parseTrustedOrigins = (authOrigin: string) => {
 
 const authUrl = parseUrl(readRequiredEnv("BETTER_AUTH_URL"), "BETTER_AUTH_URL");
 const uploadsRootDir = resolve(process.cwd(), process.env.UPLOADS_DIR?.trim() || "uploads");
-const uploadsPublicPath = "/uploads";
 
 export const env = Object.freeze({
   port: parsePort(process.env.PORT),
@@ -81,9 +80,7 @@ export const env = Object.freeze({
   }),
   uploads: Object.freeze({
     rootDir: uploadsRootDir,
-    publicPath: uploadsPublicPath,
     resumesDir: resolve(uploadsRootDir, "resumes"),
-    resumesPublicPath: `${uploadsPublicPath}/resumes`,
     maxResumeFileSizeBytes: parsePositiveInteger(
       process.env.RESUME_MAX_FILE_SIZE_BYTES,
       "RESUME_MAX_FILE_SIZE_BYTES",

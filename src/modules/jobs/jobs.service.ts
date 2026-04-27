@@ -1,5 +1,7 @@
+import { access } from "node:fs/promises";
 import { Prisma } from "@prisma/client";
 
+import { env } from "../../config/env.js";
 import { BadRequestError, ConflictError, NotFoundError, ValidationError } from "../../shared/http/errors.js";
 import { buildPaginationMeta } from "../../shared/http/pagination.js";
 import type {
@@ -22,10 +24,11 @@ import type {
   UploadedResume,
   UpdateJobInput,
 } from "./jobs.types.js";
-import { deleteSavedResumeFile, saveResumeFile } from "./jobs.upload.js";
+import { deleteSavedResumeFile, resolveResumeStoragePath, saveResumeFile } from "./jobs.upload.js";
 import { createJobsRepository } from "./jobs.repository.js";
 import type {
   AdminApplicationDetailRecord,
+  AdminApplicationResumeRecord,
   AdminApplicationSummaryRecord,
   AdminJobDetailRecord,
   AdminJobRecord,
@@ -73,6 +76,11 @@ export type JobsService = {
     };
   }>;
   getAdminApplicationById(id: string): Promise<ApplicationDetail>;
+  getAdminApplicationResumeDownload(id: string): Promise<{
+    fileName: string;
+    mimeType: string | null;
+    storagePath: string;
+  }>;
   updateAdminApplication(
     id: string,
     input: {
@@ -250,7 +258,7 @@ const mapAdminApplicationDetail = (
       status: application.job.status,
     },
     coverLetterText: application.coverLetterText,
-    resumeFileUrl: application.resumeFileUrl,
+    resumeDownloadUrl: `${env.auth.origin}/api/v1/admin/applications/${application.id}/resume`,
     resumeFileName: application.resumeFileName,
     resumeMimeType: application.resumeMimeType,
     resumeSizeBytes: application.resumeSizeBytes,
@@ -262,6 +270,30 @@ const mapAdminApplicationDetail = (
           left.createdAt.localeCompare(right.createdAt) ||
           left.id.localeCompare(right.id),
       ),
+  };
+};
+
+const mapAdminApplicationResumeDownload = async (
+  application: AdminApplicationResumeRecord,
+) => {
+  const storagePath = resolveResumeStoragePath(application.resumeStorageKey);
+
+  try {
+    await access(storagePath);
+  } catch (error) {
+    const errorCode = (error as NodeJS.ErrnoException).code;
+
+    if (errorCode === "ENOENT") {
+      throw new NotFoundError("Resume file not found.", "RESUME_FILE_NOT_FOUND");
+    }
+
+    throw error;
+  }
+
+  return {
+    fileName: application.resumeFileName,
+    mimeType: application.resumeMimeType,
+    storagePath,
   };
 };
 
@@ -554,6 +586,15 @@ export const createJobsService = (
       }
 
       return mapAdminApplicationDetail(application);
+    },
+    async getAdminApplicationResumeDownload(id) {
+      const application = await repository.findAdminApplicationResumeById(id);
+
+      if (!application) {
+        throw new NotFoundError("Application not found.");
+      }
+
+      return mapAdminApplicationResumeDownload(application);
     },
     async updateAdminApplication(id, input) {
       const existingApplication = await repository.findAdminApplicationById(id);

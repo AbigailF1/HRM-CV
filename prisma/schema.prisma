@@ -192,7 +192,7 @@ model Application {
   candidateId     String            @map("candidate_id")
   status          ApplicationStatus @default(new)
   
-  resumeFileUrl   String            @map("resume_file_url")
+  resumeStorageKey String           @map("resume_storage_key")
   resumeFileName  String            @map("resume_file_name")
   resumeMimeType  String?           @map("resume_mime_type")
   resumeSizeBytes Int?              @map("resume_size_bytes")

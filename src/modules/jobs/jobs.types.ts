@@ -121,8 +121,8 @@ export type UploadedResume = {
 };
 
 export type SavedResumeFile = {
+  storageKey: string;
   storagePath: string;
-  fileUrl: string;
   fileName: string;
   mimeType: string;
   sizeBytes: number;
@@ -233,7 +233,7 @@ export type ApplicationDetail = ApplicationSummary & {
     status: JobStatusValue;
   };
   coverLetterText?: string | null;
-  resumeFileUrl: string;
+  resumeDownloadUrl: string;
   resumeFileName: string;
   resumeMimeType?: string | null;
   resumeSizeBytes?: number | null;

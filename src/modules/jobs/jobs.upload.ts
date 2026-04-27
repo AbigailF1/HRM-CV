@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { basename, extname, isAbsolute, relative, resolve } from "node:path";
 
 import multer from "multer";
 import type { Request, Response } from "express";
 
 import { env } from "../../config/env.js";
 import { logger } from "../../lib/logger.js";
-import { ValidationError } from "../../shared/http/errors.js";
+import { NotFoundError, ValidationError } from "../../shared/http/errors.js";
 import type { SavedResumeFile, UploadedResume } from "./jobs.types.js";
 
 const allowedResumeMimeTypes = new Set([
@@ -57,6 +57,27 @@ const sanitizeFileName = (fileName: string) => {
     .slice(0, 60);
 
   return `${baseName || "resume"}${fileExtension}`;
+};
+
+const buildResumeStorageKey = (fileName: string) => {
+  return `${Date.now()}-${randomUUID()}-${sanitizeFileName(fileName)}`;
+};
+
+export const resolveResumeStoragePath = (storageKey: string) => {
+  const normalizedStorageKey = storageKey.trim();
+
+  if (!normalizedStorageKey) {
+    throw new NotFoundError("Resume file not found.", "RESUME_FILE_NOT_FOUND");
+  }
+
+  const storagePath = resolve(env.uploads.resumesDir, normalizedStorageKey);
+  const relativePath = relative(env.uploads.resumesDir, storagePath);
+
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new NotFoundError("Resume file not found.", "RESUME_FILE_NOT_FOUND");
+  }
+
+  return storagePath;
 };
 
 export const runResumeUpload = (req: Request, res: Response) => {
@@ -136,15 +157,15 @@ export const saveResumeFile = async (resume: UploadedResume): Promise<SavedResum
   try {
     await mkdir(env.uploads.resumesDir, { recursive: true });
 
-    const storedFileName = `${Date.now()}-${randomUUID()}-${sanitizeFileName(resume.originalName)}`;
-    const storagePath = join(env.uploads.resumesDir, storedFileName);
+    const storageKey = buildResumeStorageKey(resume.originalName);
+    const storagePath = resolveResumeStoragePath(storageKey);
 
     await writeFile(storagePath, resume.buffer);
 
     return {
+      storageKey,
       storagePath,
       fileName: resume.originalName,
-      fileUrl: `${env.auth.origin}${env.uploads.resumesPublicPath}/${storedFileName}`,
       mimeType: resume.mimeType,
       sizeBytes: resume.sizeBytes,
     };
