@@ -43,6 +43,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
     "prisma:studio": "prisma studio",
-    "test": "vitest run --pool threads"
+    "test": "vitest run --pool threads",
+    "dev:api": "tsx watch src/index.ts",
+    "dev:web": "pnpm --dir apps/web dev",
+    "build:api": "tsc -p tsconfig.json",
+    "build:web": "pnpm --dir apps/web build",
+    "test:api": "vitest run --pool threads"
   }
 }
