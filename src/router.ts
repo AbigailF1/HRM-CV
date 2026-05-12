@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { cvRankerRouter } from "./modules/cv-ranker/cv-ranker.routes.js";
 import { attendanceRouter } from "./modules/attendance/attendance.routes.js";
 import { emailRouter } from "./modules/email/email.routes.js";
 import { healthRouter } from "./modules/health/health.js";
@@ -11,3 +12,4 @@ router.use(healthRouter);
 router.use(jobsRouter);
 router.use(emailRouter);
 router.use(attendanceRouter);
+router.use(cvRankerRouter);

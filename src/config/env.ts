@@ -13,6 +13,7 @@ const DEFAULT_PUBLIC_READ_WINDOW_MS = 60 * 1000;
 const DEFAULT_PUBLIC_READ_LIMIT = 60;
 const DEFAULT_AUTH_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_AUTH_LIMIT = 100;
+const DEFAULT_MAX_CV_RANKER_FILES = 10;
 
 const readRequiredEnv = (name: string) => {
   const value = process.env[name]?.trim();
@@ -65,6 +66,16 @@ const parseEmailProvider = (value: string | undefined) => {
   }
 
   return provider;
+};
+
+const parseLlmProvider = (value: string | undefined) => {
+  const provider = value?.trim().toLowerCase() || "none";
+
+  if (!["none", "openai", "gemini"].includes(provider)) {
+    throw new Error("CV_RANKER_LLM_PROVIDER must be one of: none, openai, gemini.");
+  }
+
+  return provider as "none" | "openai" | "gemini";
 };
 
 const parseNonNegativeInteger = (value: string | undefined, name: string, fallback: number) => {
@@ -149,6 +160,24 @@ export const env = Object.freeze({
       DEFAULT_MAX_RESUME_FILE_SIZE_BYTES,
     ),
   }),
+  cvRanker: Object.freeze({
+    maxFiles: parsePositiveInteger(
+      process.env.CV_RANKER_MAX_FILES,
+      "CV_RANKER_MAX_FILES",
+      DEFAULT_MAX_CV_RANKER_FILES,
+    ),
+    maxFileSizeBytes: parsePositiveInteger(
+      process.env.CV_RANKER_MAX_FILE_SIZE_BYTES,
+      "CV_RANKER_MAX_FILE_SIZE_BYTES",
+      DEFAULT_MAX_RESUME_FILE_SIZE_BYTES,
+    ),
+    llm: Object.freeze({
+      provider: parseLlmProvider(process.env.CV_RANKER_LLM_PROVIDER),
+      model: readOptionalEnv("CV_RANKER_LLM_MODEL"),
+      openAiApiKey: readOptionalEnv("OPENAI_API_KEY"),
+      geminiApiKey: readOptionalEnv("GEMINI_API_KEY"),
+    }),
+  }),
   email: Object.freeze({
     provider: emailProvider,
     from: readOptionalEnv("EMAIL_FROM") ?? "no-reply@example.com",
@@ -158,7 +187,7 @@ export const env = Object.freeze({
       user: readOptionalEnv("SMTP_USER"),
       pass: readOptionalEnv("SMTP_PASS"),
     }),
- }),
+  }),
   rateLimit: Object.freeze({
     enabled: parseBoolean(process.env.RATE_LIMIT_ENABLED, true),
     trustProxyHops: parseNonNegativeInteger(
