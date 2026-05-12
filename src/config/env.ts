@@ -5,6 +5,17 @@ dotenv.config();
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_MAX_RESUME_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_MAX_CV_RANKER_FILES = 10;
+
+const parseLlmProvider = (value: string | undefined) => {
+  const provider = value?.trim().toLowerCase() || "none";
+
+  if (!['none', 'openai', 'gemini'].includes(provider)) {
+    throw new Error('CV_RANKER_LLM_PROVIDER must be one of: none, openai, gemini.');
+  }
+
+  return provider as 'none' | 'openai' | 'gemini';
+};
 
 const readRequiredEnv = (name: string) => {
   const value = process.env[name]?.trim();
@@ -86,5 +97,23 @@ export const env = Object.freeze({
       "RESUME_MAX_FILE_SIZE_BYTES",
       DEFAULT_MAX_RESUME_FILE_SIZE_BYTES,
     ),
+  }),
+  cvRanker: Object.freeze({
+    maxFiles: parsePositiveInteger(
+      process.env.CV_RANKER_MAX_FILES,
+      "CV_RANKER_MAX_FILES",
+      DEFAULT_MAX_CV_RANKER_FILES,
+    ),
+    maxFileSizeBytes: parsePositiveInteger(
+      process.env.CV_RANKER_MAX_FILE_SIZE_BYTES,
+      "CV_RANKER_MAX_FILE_SIZE_BYTES",
+      DEFAULT_MAX_RESUME_FILE_SIZE_BYTES,
+    ),
+    llm: Object.freeze({
+      provider: parseLlmProvider(process.env.CV_RANKER_LLM_PROVIDER),
+      model: process.env.CV_RANKER_LLM_MODEL?.trim() || undefined,
+      openAiApiKey: process.env.OPENAI_API_KEY?.trim() || undefined,
+      geminiApiKey: process.env.GEMINI_API_KEY?.trim() || undefined,
+    }),
   }),
 });

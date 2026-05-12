@@ -138,6 +138,33 @@ enum QuestionType {
   @@map("question_type")
 }
 
+enum CvRankerRoleType {
+  ML
+  Math
+  Custom
+
+  @@map("cv_ranker_role_type")
+}
+
+enum CvRankJobStatus {
+  queued
+  processing
+  completed
+  failed
+  partial
+
+  @@map("cv_rank_job_status")
+}
+
+enum CvRankResultStatus {
+  pending
+  processing
+  completed
+  failed
+
+  @@map("cv_rank_result_status")
+}
+
 // Job Models
 model Job {
   id                 String           @id @default(uuid())
@@ -256,4 +283,58 @@ model QuestionResponse {
   @@index([jobId], map: "question_response_job_id_idx")
   @@index([questionId], map: "question_response_question_id_idx")
   @@map("question_response")
+}
+
+model CvRankerRoleConfig {
+  id                    String           @id @default(uuid())
+  roleType              CvRankerRoleType @unique @map("role_type")
+  defaultJobDescription String           @map("default_job_description")
+  metrics               Json
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
+
+  @@map("cv_ranker_role_config")
+}
+
+model CvRankJob {
+  id             String           @id @default(uuid())
+  roleType       CvRankerRoleType @map("role_type")
+  jobDescription String           @map("job_description")
+  metrics        Json
+  status         CvRankJobStatus  @default(queued)
+  webhookUrl     String?          @map("webhook_url")
+  errorMessage   String?          @map("error_message")
+  completedAt    DateTime?        @map("completed_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  results        CvRankResult[]
+
+  @@index([status], map: "cv_rank_job_status_idx")
+  @@index([createdAt], map: "cv_rank_job_created_at_idx")
+  @@map("cv_rank_job")
+}
+
+model CvRankResult {
+  id            String             @id @default(uuid())
+  rankJobId     String             @map("rank_job_id")
+  inputFileName String             @map("input_file_name")
+  mimeType      String             @map("mime_type")
+  status        CvRankResultStatus @default(pending)
+  name          String?
+  email         String?
+  finalScore    Float?             @map("final_score")
+  metricScores  Json?              @map("metric_scores")
+  llmSummary    String?            @map("llm_summary")
+  extracted     Json?
+  errorMessage  String?            @map("error_message")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  rankJob       CvRankJob          @relation(fields: [rankJobId], references: [id], onDelete: Cascade)
+
+  @@index([rankJobId], map: "cv_rank_result_job_id_idx")
+  @@index([status], map: "cv_rank_result_status_idx")
+  @@index([finalScore], map: "cv_rank_result_final_score_idx")
+  @@map("cv_rank_result")
 }
