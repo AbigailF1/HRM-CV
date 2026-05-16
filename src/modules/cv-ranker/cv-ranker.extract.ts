@@ -96,11 +96,27 @@ const extractName = (text: string, email: string | null) => {
   return words.length >= 2 ? words.slice(0, 3).join(" ") : null;
 };
 
+const aliasPatterns: Array<{ label: string; pattern: RegExp }> = [
+  { label: "JavaScript", pattern: /\bjs\b|\bnode\b|\bnodejs\b/i },
+  { label: "Python", pattern: /\bpython3?\b|\bpy\b/i },
+  { label: "TensorFlow", pattern: /\btf\b/i },
+  { label: "scikit-learn", pattern: /\bsklearn\b|\bscikit\b/i },
+  { label: "Git", pattern: /\bgithub\b|\bgitlab\b/i },
+  { label: "PyTorch", pattern: /\btorch\b/i },
+];
+
 const extractSkills = (text: string) => {
-  return skillPatterns
-    .filter((skill) => skill.pattern.test(text))
-    .map((skill) => skill.label)
-    .sort((left, right) => left.localeCompare(right));
+  const found = new Set<string>();
+
+  for (const skill of skillPatterns) {
+    if (skill.pattern.test(text)) found.add(skill.label);
+  }
+
+  for (const alias of aliasPatterns) {
+    if (alias.pattern.test(text)) found.add(alias.label);
+  }
+
+  return Array.from(found).sort((left, right) => left.localeCompare(right));
 };
 
 const extractSectionLines = (text: string, keywords: RegExp, limit: number) => {

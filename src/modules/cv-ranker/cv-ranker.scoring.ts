@@ -1,4 +1,5 @@
 import { ValidationError } from "../../shared/http/errors.js";
+import type { ExtractedCandidateData } from "./cv-ranker.types.js";
 import type {
   CvRankMetricDefinition,
   CvRankMetricWeightOverrides,
@@ -161,17 +162,135 @@ export const cosineSimilarity = (left: Float64Array, right: Float64Array) => {
 
 const toScore = (similarity: number) => {
   const nonNegativeSimilarity = Math.max(0, similarity);
-  const scaledScore = Math.pow(nonNegativeSimilarity, 0.55) * 100;
+  // intern-friendly: use lower exponent (0.4) to make the score curve
+  // much more forgiving for lower similarities. this gives interns credit
+  // even with modest semantic matches.
+  const scaledScore = Math.pow(nonNegativeSimilarity, 0.4) * 100;
   return Number(Math.min(100, scaledScore).toFixed(1));
 };
 
-export const scoreMetrics = (cvText: string, metrics: CvRankMetricDefinition[]) => {
+export const scoreMetrics = (
+  cvText: string,
+  metrics: CvRankMetricDefinition[],
+  extracted?: ExtractedCandidateData,
+) => {
   const cvEmbedding = embedTextLocally(cvText);
   const scores: Record<string, number> = {};
 
+  const normalize = (s: string) => s.toLowerCase();
+
+  const structuredMatchScore = (metric: CvRankMetricDefinition) => {
+    if (!extracted) return 0;
+
+    const metricText = `${metric.name} ${metric.description}`.toLowerCase();
+    const metricLower = metricText;
+
+    // Strategy 1: Direct skill list matching - give high credit if any skill matches the metric
+    const skillMatches = extracted.skills.filter((skill) => {
+      const skillLower = skill.toLowerCase();
+      // Match if skill is mentioned in metric name/description, or metric is broad enough
+      return (
+        metricText.includes(skillLower) ||
+        metricLower.includes(skillLower) ||
+        skillLower.includes(metricLower.split(/\s+/)[0]) // first word of metric
+      );
+    });
+
+    const hasDirectSkillMatch = skillMatches.length > 0;
+    const directSkillBoost = hasDirectSkillMatch ? 0.6 : 0; // 60% base from explicit skills
+
+    // Strategy 2: Language/Framework specific boosts for programming and ML metrics
+    const isProgrammingMetric = /python|programming|javascript|java|c\+\+|golang|typescript|coding/.test(metricLower);
+    const isDataMetric = /machine learning|ml framework|data|statistics|probability|linear algebra/.test(metricLower);
+
+    const concatenated = [
+      extracted.education ?? "",
+      ...(extracted.experience ?? []),
+      ...(extracted.projects ?? []),
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    // Check for concrete coding evidence (projects, contributions, coursework)
+    // interns are heavily judged by coding activity and project work, so boost this more
+    const codingEvidenceTerms = [
+      "leetcode",
+      "codeforces",
+      "github",
+      "repository",
+      "project",
+      "hackathon",
+      "algorithm",
+      "data structure",
+      "built",
+      "developed",
+      "implemented",
+      "contributed",
+      "solved",
+      "learning",
+    ];
+    let codingEvidenceCount = 0;
+    for (const term of codingEvidenceTerms) {
+      if (concatenated.includes(term)) codingEvidenceCount += 1;
+    }
+    // conservative intern boost: up to 45% from coding/learning evidence
+    const codingEvidenceBoost = isProgrammingMetric ? Math.min(0.45, codingEvidenceCount * 0.08) : 0;
+
+    // Check for ML/data framework mentions and learning programs
+    // interns often take online courses (Kifiya, Coursera, etc.) so include coursework terms
+    const mlFrameworkTerms = [
+      "pytorch",
+      "tensorflow",
+      "sklearn",
+      "scikit",
+      "pandas",
+      "numpy",
+      "faiss",
+      "transformer",
+      "deep learning",
+      "neural",
+      "program",
+      "course",
+      "training",
+      "mastery",
+    ];
+    let mlFrameworkCount = 0;
+    for (const term of mlFrameworkTerms) {
+      if (concatenated.includes(term)) mlFrameworkCount += 1;
+    }
+    // more generous boost for data/ML: up to 45% for interns with learning programs
+    const mlFrameworkBoost = isDataMetric ? Math.min(0.45, mlFrameworkCount * 0.1) : 0;
+
+    // Strategy 3: Token-based fallback (for partial matches in experience/education)
+    const metricTokens = tokenize(metricText);
+    let tokenMatches = 0;
+    for (const token of metricTokens) {
+      if (concatenated.includes(token)) tokenMatches += 1;
+    }
+    const tokenFraction = metricTokens.length > 0 ? tokenMatches / metricTokens.length : 0;
+    const contextualBoost = Math.min(0.15, tokenFraction * 0.15);
+
+    // Combine: prioritize direct skill matches, add specific boosts, fall back to contextual
+    const combinedScore = Math.min(1, directSkillBoost + codingEvidenceBoost + mlFrameworkBoost + contextualBoost);
+
+    return Number((combinedScore * 100).toFixed(1));
+  };
+
   for (const metric of metrics) {
     const metricEmbedding = embedTextLocally(`${metric.name}. ${metric.description}`);
-    scores[metric.id] = toScore(cosineSimilarity(cvEmbedding, metricEmbedding));
+    const semantic = toScore(cosineSimilarity(cvEmbedding, metricEmbedding));
+    const structured = structuredMatchScore(metric);
+
+    // conservative intern floor: 40% of semantic
+    // this ensures interns get baseline credit even when structured matches are low
+    const structuredFloor = Number((semantic * 0.4).toFixed(1));
+    const structuredAdjusted = Math.max(structured, structuredFloor);
+
+    // blend semantic and structured signals: 70% semantic, 30% structured
+    const blended = Number((semantic * 0.7 + structuredAdjusted * 0.3).toFixed(1));
+
+
+    scores[metric.id] = blended;
   }
 
   return scores;

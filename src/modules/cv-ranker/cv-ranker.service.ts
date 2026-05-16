@@ -390,7 +390,7 @@ export const createCvRankerService = (
             }
 
             const extracted = extractStructuredCandidateData(cvText);
-            const metricScores = scoreMetrics(cvText, metrics);
+            const metricScores = scoreMetrics(cvText, metrics, extracted);
             const finalScore = combineMetricScores(metricScores, metrics);
             const llmSummary = await generateCandidateSummary({
               roleType: rankJob.roleType,
