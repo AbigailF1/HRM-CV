@@ -91,7 +91,6 @@ console.log("Extracted structured data:", JSON.stringify(extracted, null, 2));
 
 console.log("\nTargeted extractive summary (AI Developer Intern):");
 const targeted = summarizeResumeForJob(resumeText, "AI Developer Intern", 3, 90);
-for (const b of targeted) console.log("-", b);
 // One-sentence elevator summary (non-LLM): compose from extracted fields
 const buildElevator = (extracted: any, text: string) => {
   const name = extracted.name ?? "Candidate";
