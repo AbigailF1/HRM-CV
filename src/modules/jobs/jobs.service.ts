@@ -2,6 +2,8 @@ import { access } from "node:fs/promises";
 import { Prisma } from "@prisma/client";
 
 import { env } from "../../config/env.js";
+import { logger } from "../../lib/logger.js";
+import { createEmailService, type EmailService } from "../email/email.service.js";
 import { BadRequestError, ConflictError, NotFoundError, ValidationError } from "../../shared/http/errors.js";
 import { buildPaginationMeta } from "../../shared/http/pagination.js";
 import type {
@@ -499,6 +501,7 @@ const validateApplicationQuestionResponses = (
 
 export const createJobsService = (
   repository: JobsRepository = createJobsRepository(),
+  emailService: EmailService = createEmailService(),
 ): JobsService => {
   return {
     repository,
@@ -620,6 +623,19 @@ export const createJobsService = (
         throw new NotFoundError("Application not found.");
       }
 
+      try {
+        await emailService.queueApplicationStatusEmail(updatedApplication);
+      } catch (error) {
+        logger.error(
+          {
+            applicationId: updatedApplication.id,
+            status: updatedApplication.status,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "failed to queue application status email",
+        );
+      }
+
       return mapAdminApplicationDetail(updatedApplication);
     },
     async applyToJob(slug, input, resume) {
@@ -646,6 +662,18 @@ export const createJobsService = (
           resume: savedResume,
           questionResponses,
         });
+
+        try {
+          await emailService.queueApplicationReceived(application);
+        } catch (error) {
+          logger.error(
+            {
+              applicationId: application.id,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "failed to queue application received email",
+          );
+        }
 
         return mapPublicApplicationSubmission(application);
       } catch (error) {
