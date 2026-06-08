@@ -46,4 +46,10 @@ export class ValidationError extends AppError {
   }
 }
 
+export class TooManyRequestsError extends AppError {
+  constructor(message = "Too many requests", code = "RATE_LIMITED") {
+    super(message, 429, code);
+  }
+}
+
 export const isAppError = (error: unknown): error is AppError => error instanceof AppError;
