@@ -84,6 +84,11 @@ export const startEmailWorker = (options: EmailWorkerOptions = {}) => {
 
       if (timer) {
         clearTimeout(timer);
+        timer = null;
+      }
+
+      while (isProcessing) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
 
       await disconnectPrisma();
