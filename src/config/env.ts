@@ -5,6 +5,7 @@ dotenv.config();
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_MAX_RESUME_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_EMAIL_PROVIDER = "log";
 const DEFAULT_TRUST_PROXY_HOPS = 0;
 const DEFAULT_APPLICATION_SUBMIT_WINDOW_MS = 60 * 60 * 1000;
 const DEFAULT_APPLICATION_SUBMIT_LIMIT = 5;
@@ -49,6 +50,21 @@ const parsePositiveInteger = (value: string | undefined, name: string, fallback:
   }
 
   return parsedValue;
+};
+
+const readOptionalEnv = (name: string) => {
+  const value = process.env[name]?.trim();
+  return value && value.length > 0 ? value : undefined;
+};
+
+const parseEmailProvider = (value: string | undefined) => {
+  const provider = value?.trim() || DEFAULT_EMAIL_PROVIDER;
+
+  if (provider !== "log" && provider !== "smtp") {
+    throw new Error("EMAIL_PROVIDER must be one of: log, smtp.");
+  }
+
+  return provider;
 };
 
 const parseNonNegativeInteger = (value: string | undefined, name: string, fallback: number) => {
@@ -107,6 +123,13 @@ const parseTrustedOrigins = (authOrigin: string) => {
 
 const authUrl = parseUrl(readRequiredEnv("BETTER_AUTH_URL"), "BETTER_AUTH_URL");
 const uploadsRootDir = resolve(process.cwd(), process.env.UPLOADS_DIR?.trim() || "uploads");
+const emailProvider = parseEmailProvider(process.env.EMAIL_PROVIDER);
+
+if (emailProvider === "smtp") {
+  for (const envName of ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "EMAIL_FROM"]) {
+    readRequiredEnv(envName);
+  }
+}
 
 export const env = Object.freeze({
   port: parsePort(process.env.PORT),
@@ -126,6 +149,16 @@ export const env = Object.freeze({
       DEFAULT_MAX_RESUME_FILE_SIZE_BYTES,
     ),
   }),
+  email: Object.freeze({
+    provider: emailProvider,
+    from: readOptionalEnv("EMAIL_FROM") ?? "no-reply@example.com",
+    smtp: Object.freeze({
+      host: readOptionalEnv("SMTP_HOST"),
+      port: parsePositiveInteger(process.env.SMTP_PORT, "SMTP_PORT", 587),
+      user: readOptionalEnv("SMTP_USER"),
+      pass: readOptionalEnv("SMTP_PASS"),
+    }),
+ }),
   rateLimit: Object.freeze({
     enabled: parseBoolean(process.env.RATE_LIMIT_ENABLED, true),
     trustProxyHops: parseNonNegativeInteger(

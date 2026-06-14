@@ -138,6 +138,29 @@ enum QuestionType {
   @@map("question_type")
 }
 
+enum EmailJobStatus {
+  pending
+  processing
+  sent
+  retrying
+  failed
+
+  @@map("email_job_status")
+}
+
+enum EmailEventType {
+  application_received
+  application_shortlisted
+  application_offer
+  application_hired
+  application_rejected
+  interview_scheduled
+  interview_rescheduled
+  interview_reminder
+
+  @@map("email_event_type")
+}
+
 // Job Models
 model Job {
   id                 String           @id @default(uuid())
@@ -256,4 +279,44 @@ model QuestionResponse {
   @@index([jobId], map: "question_response_job_id_idx")
   @@index([questionId], map: "question_response_question_id_idx")
   @@map("question_response")
+}
+
+model EmailJob {
+  id                String         @id @default(uuid())
+  eventType         EmailEventType @map("event_type")
+  templateKey       String         @map("template_key")
+  recipientEmail    String         @map("recipient_email")
+  recipientName     String?        @map("recipient_name")
+  payloadJson       Json           @map("payload_json")
+  status            EmailJobStatus @default(pending)
+  attemptCount      Int            @default(0) @map("attempt_count")
+  maxAttempts       Int            @default(5) @map("max_attempts")
+  nextRetryAt       DateTime?      @default(now()) @map("next_retry_at")
+  lastError         String?        @map("last_error")
+  providerMessageId String?        @map("provider_message_id")
+  dedupeKey         String?        @unique(map: "email_job_dedupe_key_unique") @map("dedupe_key")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  sentAt            DateTime?      @map("sent_at")
+
+  logs EmailLog[]
+
+  @@index([status, nextRetryAt], map: "email_job_status_next_retry_at_idx")
+  @@index([eventType], map: "email_job_event_type_idx")
+  @@index([recipientEmail], map: "email_job_recipient_email_idx")
+  @@map("email_job")
+}
+
+model EmailLog {
+  id         String   @id @default(uuid())
+  emailJobId String   @map("email_job_id")
+  action     String
+  message    String?
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  emailJob EmailJob @relation(fields: [emailJobId], references: [id], onDelete: Cascade)
+
+  @@index([emailJobId, createdAt], map: "email_log_job_created_at_idx")
+  @@map("email_log")
 }

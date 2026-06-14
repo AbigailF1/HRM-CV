@@ -8,6 +8,7 @@ Express + Prisma API for job publishing, candidate applications, and admin-side 
 - Public job listing and job detail endpoints
 - Admin job creation, update, and review endpoints
 - Resume upload handling for job applications
+- PostgreSQL-backed email job queue for applicant email automation
 - Protected admin-only resume downloads
 - Structured JSON request and error logging with `x-request-id` response headers
 
@@ -49,6 +50,12 @@ pnpm prisma:migrate
 pnpm dev
 ```
 
+6. Start the email worker in another terminal:
+
+```bash
+pnpm worker:email
+```
+
 The API starts on `http://localhost:3000` by default.
 
 ## Environment Variables
@@ -62,6 +69,14 @@ The API starts on `http://localhost:3000` by default.
 | `BETTER_AUTH_TRUSTED_ORIGINS` | No | `http://localhost:5173,http://localhost:3000` | Comma-separated origins allowed to call Better Auth. In non-production, `http://localhost:5000` is trusted automatically. |
 | `UPLOADS_DIR` | No | `uploads` | Root directory for persisted upload files. Defaults to `./uploads`. |
 | `RESUME_MAX_FILE_SIZE_BYTES` | No | `5242880` | Maximum allowed resume size in bytes. Defaults to `5 MiB`. |
+| `EMAIL_PROVIDER` | No | `log` | Email provider. `log` is enabled for local/dev/tests. `smtp` is reserved until a mail transport dependency is added. |
+| `EMAIL_FROM` | No | `no-reply@example.com` | Sender address reserved for real email transports. |
+| `SMTP_HOST` | Required if `EMAIL_PROVIDER=smtp` | `smtp.example.com` | SMTP host. Validated only when SMTP is selected. |
+| `SMTP_PORT` | Required if `EMAIL_PROVIDER=smtp` | `587` | SMTP port. |
+| `SMTP_USER` | Required if `EMAIL_PROVIDER=smtp` | `smtp-user` | SMTP username. Never logged. |
+| `SMTP_PASS` | Required if `EMAIL_PROVIDER=smtp` | `smtp-password` | SMTP password. Never logged. |
+| `EMAIL_WORKER_BATCH_SIZE` | No | `10` | Max jobs claimed by each worker poll. |
+| `EMAIL_WORKER_POLL_INTERVAL_MS` | No | `15000` | Delay between worker polls. |
 
 ## Auth Flow
 
@@ -107,6 +122,30 @@ curl -X POST http://localhost:3000/api/auth/sign-in/email \
 - Request, startup, upload, and error logs are emitted as structured JSON
 - Every response includes an `x-request-id` header for tracing and support follow-up
 - Sensitive request data such as cookies, auth headers, request bodies, and resume contents are not logged
+
+## Email Automation
+
+Applicant email automation uses durable PostgreSQL jobs, not direct sends in the request path.
+
+- Application submission queues `application_received` after the application is saved.
+- Admin status changes queue emails for `screening`, `offer`, `hired`, and `rejected`.
+- The `interview` status does not queue an interview email yet because the app has no interview date/time/link fields.
+- Each queued job stores its recipient, template key, payload, status, attempt count, retry time, provider message id, and audit logs.
+- Duplicate application event jobs are suppressed with a dedupe key like `application:<applicationId>:event:<eventType>`.
+- The worker retries temporary failures up to 5 attempts with 1 minute, 5 minute, 15 minute, then 1 hour backoff.
+
+Run the worker:
+
+```bash
+pnpm worker:email
+```
+
+With the default `EMAIL_PROVIDER=log`, successful sends are logged instead of delivered to a real inbox.
+
+Detailed docs:
+
+- [Email automation runbook](docs/email-automation.md)
+- [Local development guide](docs/local-development.md)
 
 ## Example API Calls
 
@@ -180,6 +219,54 @@ curl -L "http://localhost:3000/api/v1/admin/applications/<application-id>/resume
   -H "Origin: http://localhost:3000" \
   -b cookies.txt \
   -o candidate-resume.pdf
+```
+
+Inspect an email job:
+
+```bash
+curl "http://localhost:3000/api/v1/admin/email/jobs/<email-job-id>" \
+  -H "Origin: http://localhost:3000" \
+  -b cookies.txt
+```
+
+Inspect an email job's logs:
+
+```bash
+curl "http://localhost:3000/api/v1/admin/email/jobs/<email-job-id>/logs" \
+  -H "Origin: http://localhost:3000" \
+  -b cookies.txt
+```
+
+Manually retry an email job:
+
+```bash
+curl -X POST "http://localhost:3000/api/v1/admin/email/jobs/<email-job-id>/retry" \
+  -H "Origin: http://localhost:3000" \
+  -b cookies.txt
+```
+
+Queue a batch email:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/admin/email/batch \
+  -H "Content-Type: application/json" \
+  -H "Origin: http://localhost:3000" \
+  -b cookies.txt \
+  -d '{
+    "template_key": "application_received",
+    "users": [
+      {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "job_title": "Backend Developer"
+      },
+      {
+        "name": "Bob",
+        "email": "bob@example.com",
+        "job_title": "Designer"
+      }
+    ]
+  }'
 ```
 
 ## Tests
