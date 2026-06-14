@@ -1,6 +1,10 @@
 import { Router } from "express";
 
 import { requireAdminSession } from "../../shared/http/middleware/auth.js";
+import {
+  applicationSubmitLimiter,
+  publicReadLimiter,
+} from "../../shared/http/middleware/rateLimit.js";
 import { sendCreated, sendOk, sendPaginated } from "../../shared/http/response.js";
 import {
   parseAdminApplicationsListQuery,
@@ -23,20 +27,20 @@ const getRouteParam = (value: string | string[]) => {
 
 export const jobsRouter = Router();
 
-jobsRouter.get("/jobs", async (req, res) => {
+jobsRouter.get("/jobs", publicReadLimiter, async (req, res) => {
   const params = parseJobsListQuery(req.query);
   const result = await jobsService.listPublicJobs(params);
 
   return sendPaginated(res, result.jobs, result.meta);
 });
 
-jobsRouter.get("/jobs/:slug", async (req, res) => {
+jobsRouter.get("/jobs/:slug", publicReadLimiter, async (req, res) => {
   const job = await jobsService.getPublicJobBySlug(getRouteParam(req.params.slug));
 
   return sendOk(res, job);
 });
 
-jobsRouter.post("/jobs/:slug/applications", async (req, res) => {
+jobsRouter.post("/jobs/:slug/applications", applicationSubmitLimiter, async (req, res) => {
   await runResumeUpload(req, res);
 
   const input = parseApplyToJobInput({

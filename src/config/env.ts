@@ -6,6 +6,13 @@ dotenv.config();
 const DEFAULT_PORT = 3000;
 const DEFAULT_MAX_RESUME_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_EMAIL_PROVIDER = "log";
+const DEFAULT_TRUST_PROXY_HOPS = 0;
+const DEFAULT_APPLICATION_SUBMIT_WINDOW_MS = 60 * 60 * 1000;
+const DEFAULT_APPLICATION_SUBMIT_LIMIT = 5;
+const DEFAULT_PUBLIC_READ_WINDOW_MS = 60 * 1000;
+const DEFAULT_PUBLIC_READ_LIMIT = 60;
+const DEFAULT_AUTH_WINDOW_MS = 15 * 60 * 1000;
+const DEFAULT_AUTH_LIMIT = 100;
 
 const readRequiredEnv = (name: string) => {
   const value = process.env[name]?.trim();
@@ -58,6 +65,38 @@ const parseEmailProvider = (value: string | undefined) => {
   }
 
   return provider;
+};
+
+const parseNonNegativeInteger = (value: string | undefined, name: string, fallback: number) => {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsedValue = Number(value);
+
+  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+    throw new Error(`${name} must be a non-negative integer.`);
+  }
+
+  return parsedValue;
+};
+
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
 };
 
 const parseUrl = (value: string, name: string) => {
@@ -118,6 +157,50 @@ export const env = Object.freeze({
       port: parsePositiveInteger(process.env.SMTP_PORT, "SMTP_PORT", 587),
       user: readOptionalEnv("SMTP_USER"),
       pass: readOptionalEnv("SMTP_PASS"),
+    }),
+ }),
+  rateLimit: Object.freeze({
+    enabled: parseBoolean(process.env.RATE_LIMIT_ENABLED, true),
+    trustProxyHops: parseNonNegativeInteger(
+      process.env.TRUST_PROXY_HOPS,
+      "TRUST_PROXY_HOPS",
+      DEFAULT_TRUST_PROXY_HOPS,
+    ),
+    applicationSubmit: Object.freeze({
+      windowMs: parsePositiveInteger(
+        process.env.RATE_LIMIT_APPLICATION_WINDOW_MS,
+        "RATE_LIMIT_APPLICATION_WINDOW_MS",
+        DEFAULT_APPLICATION_SUBMIT_WINDOW_MS,
+      ),
+      limit: parsePositiveInteger(
+        process.env.RATE_LIMIT_APPLICATION_LIMIT,
+        "RATE_LIMIT_APPLICATION_LIMIT",
+        DEFAULT_APPLICATION_SUBMIT_LIMIT,
+      ),
+    }),
+    publicRead: Object.freeze({
+      windowMs: parsePositiveInteger(
+        process.env.RATE_LIMIT_PUBLIC_READ_WINDOW_MS,
+        "RATE_LIMIT_PUBLIC_READ_WINDOW_MS",
+        DEFAULT_PUBLIC_READ_WINDOW_MS,
+      ),
+      limit: parsePositiveInteger(
+        process.env.RATE_LIMIT_PUBLIC_READ_LIMIT,
+        "RATE_LIMIT_PUBLIC_READ_LIMIT",
+        DEFAULT_PUBLIC_READ_LIMIT,
+      ),
+    }),
+    auth: Object.freeze({
+      windowMs: parsePositiveInteger(
+        process.env.RATE_LIMIT_AUTH_WINDOW_MS,
+        "RATE_LIMIT_AUTH_WINDOW_MS",
+        DEFAULT_AUTH_WINDOW_MS,
+      ),
+      limit: parsePositiveInteger(
+        process.env.RATE_LIMIT_AUTH_LIMIT,
+        "RATE_LIMIT_AUTH_LIMIT",
+        DEFAULT_AUTH_LIMIT,
+      ),
     }),
   }),
 });
