@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { env } from "../../config/env.js";
 import { logger } from "../../lib/logger.js";
 import type { RenderedEmail } from "./email.templates.js";
 
@@ -52,19 +53,7 @@ export const createLogEmailProvider = (): EmailProvider => {
 };
 
 export const createEmailProvider = (): EmailProvider => {
-  const provider = process.env.EMAIL_PROVIDER?.trim() || "log";
-
-  if (provider !== "log" && provider !== "smtp") {
-    throw new Error("EMAIL_PROVIDER must be one of: log, smtp.");
-  }
-
-  if (provider === "smtp") {
-    for (const envName of ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "EMAIL_FROM"]) {
-      if (!process.env[envName]?.trim()) {
-        throw new Error(`Missing required environment variable: ${envName}`);
-      }
-    }
-
+  if (env.email.provider === "smtp") {
     return {
       async send() {
         throw new EmailProviderError(
