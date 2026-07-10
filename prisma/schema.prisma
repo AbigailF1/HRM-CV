@@ -256,6 +256,7 @@ model Application {
   job               Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
   candidate         Candidate          @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   questionResponses QuestionResponse[]
+  cvRankResults     CvRankResult[]
 
   @@unique([jobId, candidateId], map: "application_job_candidate_unique")
   @@unique([id, jobId], map: "application_id_job_id_unique")
@@ -381,8 +382,11 @@ model CvRankJob {
 model CvRankResult {
   id            String             @id @default(uuid())
   rankJobId     String             @map("rank_job_id")
+  applicationId String?            @map("application_id")
   inputFileName String             @map("input_file_name")
   mimeType      String             @map("mime_type")
+  storageKey    String?            @map("storage_key")
+  sizeBytes     Int?               @map("size_bytes")
   status        CvRankResultStatus @default(pending)
   name          String?
   email         String?
@@ -395,8 +399,10 @@ model CvRankResult {
   updatedAt     DateTime           @updatedAt @map("updated_at")
 
   rankJob       CvRankJob          @relation(fields: [rankJobId], references: [id], onDelete: Cascade)
+  application   Application?       @relation(fields: [applicationId], references: [id], onDelete: SetNull)
 
   @@index([rankJobId], map: "cv_rank_result_job_id_idx")
+  @@index([applicationId], map: "cv_rank_result_application_id_idx")
   @@index([status], map: "cv_rank_result_status_idx")
   @@index([finalScore], map: "cv_rank_result_final_score_idx")
   @@map("cv_rank_result")

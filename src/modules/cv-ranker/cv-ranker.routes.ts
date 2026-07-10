@@ -3,6 +3,7 @@ import { Router } from "express";
 import { BadRequestError } from "../../shared/http/errors.js";
 import { requireAdminSession } from "../../shared/http/middleware/auth.js";
 import {
+  parseCreateApplicationCvRankJobInput,
   parseCreateCvRankJobInput,
   parseCvRankerRoleType,
   parseGenerateCustomMetricsInput,
@@ -82,6 +83,20 @@ cvRankerRouter.post("/admin/cv-ranker/jobs", requireAdminSession, async (req, re
 
   return res.status(202).json(rankJob);
 });
+
+cvRankerRouter.post(
+  "/admin/jobs/:id/applications/rank",
+  requireAdminSession,
+  async (req, res) => {
+    const input = parseCreateApplicationCvRankJobInput(req.body);
+    const rankJob = await cvRankerService.startApplicationRankJob(
+      getRouteParam(req.params.id),
+      input,
+    );
+
+    return res.status(202).json(rankJob);
+  },
+);
 
 cvRankerRouter.get("/admin/cv-ranker/jobs/:id", requireAdminSession, async (req, res) => {
   const rankJob = await cvRankerService.getRankJob(getRouteParam(req.params.id));

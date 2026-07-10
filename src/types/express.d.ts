@@ -9,6 +9,7 @@ declare global {
     interface Request {
       auth?: AuthSession;
       file?: MulterFile;
+      files?: MulterFile[] | Record<string, MulterFile[]>;
       log: Logger;
       requestId: string;
     }

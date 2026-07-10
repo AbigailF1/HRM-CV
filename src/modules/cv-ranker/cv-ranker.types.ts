@@ -35,8 +35,25 @@ export type UploadedCvFile = {
   buffer: Buffer;
 };
 
+export type SavedCvFile = {
+  storageKey: string;
+  storagePath: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  applicationId?: string;
+};
+
 export type CreateCvRankJobInput = {
   roleType: CvRankerRoleTypeValue;
+  jobDescription?: string;
+  metrics?: CvRankMetricDefinition[];
+  weights?: CvRankMetricWeightOverrides;
+  webhookUrl?: string;
+};
+
+export type CreateApplicationCvRankJobInput = {
+  roleType?: CvRankerRoleTypeValue;
   jobDescription?: string;
   metrics?: CvRankMetricDefinition[];
   weights?: CvRankMetricWeightOverrides;
@@ -68,6 +85,7 @@ export type FullExtractedCandidateData = ExtractedCandidateData & {
 
 export type CvRankResultResponse = {
   id: string;
+  application_id: string | null;
   status: CvRankResultStatusValue;
   input_file_name: string;
   name: string | null;

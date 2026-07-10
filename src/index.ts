@@ -2,6 +2,7 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { disconnectPrisma, getPrisma } from "./lib/prisma.js";
+import { createCvRankerService } from "./modules/cv-ranker/cv-ranker.service.js";
 
 const DB_MAX_ATTEMPTS = 3;
 const DB_RETRY_DELAY_MS = 2_000;
@@ -50,6 +51,23 @@ const startServer = async () => {
   const server = app.listen(env.port, () => {
     logger.info({ port: env.port }, "api listening");
   });
+  const cvRankerService = createCvRankerService();
+
+  setTimeout(() => {
+    void cvRankerService
+      .recoverPendingRankJobs()
+      .then((count) => {
+        if (count > 0) {
+          logger.info({ count }, "cv ranker recovery jobs scheduled");
+        }
+      })
+      .catch((error) => {
+        logger.error(
+          { err: error instanceof Error ? error : undefined },
+          "cv ranker recovery failed",
+        );
+      });
+  }, 0);
 
   const shutdown = (signal: string) => {
     logger.info({ signal }, "shutdown signal received");

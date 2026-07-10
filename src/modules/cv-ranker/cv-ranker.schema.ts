@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ValidationError } from "../../shared/http/errors.js";
 import type {
   CreateCvRankJobInput,
+  CreateApplicationCvRankJobInput,
   CvRankMetricDefinition,
   CvRankerRoleTypeValue,
   UpdateCvRankerRoleConfigInput,
@@ -50,6 +51,15 @@ export const createCvRankJobInputSchema: z.ZodType<CreateCvRankJobInput> = z.obj
   weights: weightsSchema.optional(),
   webhookUrl: z.preprocess(trimToUndefined, z.string().url().max(2_000).optional()),
 });
+
+export const createApplicationCvRankJobInputSchema: z.ZodType<CreateApplicationCvRankJobInput> =
+  z.object({
+    roleType: cvRankerRoleTypeSchema.optional(),
+    jobDescription: optionalTrimmedString(20_000),
+    metrics: z.array(cvRankMetricSchema).min(1).max(20).optional(),
+    weights: weightsSchema.optional(),
+    webhookUrl: z.preprocess(trimToUndefined, z.string().url().max(2_000).optional()),
+  });
 
 export const updateCvRankerRoleConfigInputSchema: z.ZodType<UpdateCvRankerRoleConfigInput> =
   z
@@ -106,6 +116,22 @@ export const parseCvRankerRoleType = (value: unknown): CvRankerRoleTypeValue => 
 export const parseCreateCvRankJobInput = (input: Record<string, unknown>) => {
   try {
     return createCvRankJobInputSchema.parse({
+      ...input,
+      metrics: parseJsonField(input.metrics, "metrics"),
+      weights: parseJsonField(input.weights, "weights"),
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw toValidationError(error);
+    }
+
+    throw error;
+  }
+};
+
+export const parseCreateApplicationCvRankJobInput = (input: Record<string, unknown>) => {
+  try {
+    return createApplicationCvRankJobInputSchema.parse({
       ...input,
       metrics: parseJsonField(input.metrics, "metrics"),
       weights: parseJsonField(input.weights, "weights"),

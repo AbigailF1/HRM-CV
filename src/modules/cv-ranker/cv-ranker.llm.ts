@@ -312,10 +312,10 @@ export const generateCustomMetricsWithLlm = async (jobDescription: string) => {
 
   try {
     if (provider === "openai") {
-      return generateOpenAiCustomMetrics(jobDescription);
+      return await generateOpenAiCustomMetrics(jobDescription);
     }
 
-    return generateGeminiCustomMetrics(jobDescription);
+    return await generateGeminiCustomMetrics(jobDescription);
   } catch (error) {
     logger.warn(
       { err: error instanceof Error ? error : undefined },
@@ -336,10 +336,10 @@ export const generateCandidateSummary = async (input: CandidateSummaryInput) => 
     const prompt = buildSummaryPrompt(input);
 
     if (provider === "openai") {
-      return generateOpenAiSummary(prompt);
+      return await generateOpenAiSummary(prompt);
     }
 
-    return generateGeminiSummary(prompt);
+    return await generateGeminiSummary(prompt);
   } catch (error) {
     logger.warn(
       { err: error instanceof Error ? error : undefined },

@@ -36,6 +36,7 @@ declare module "multer" {
 
   export type Multer = {
     single(fieldName: string): RequestHandler;
+    any(): RequestHandler;
   };
 
   type MulterFactory = ((options?: Options) => Multer) & {

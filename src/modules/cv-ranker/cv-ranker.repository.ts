@@ -6,7 +6,7 @@ import type {
   CvRankMetricDefinition,
   CvRankResultStatusValue,
   CvRankerRoleTypeValue,
-  UploadedCvFile,
+  SavedCvFile,
 } from "./cv-ranker.types.js";
 
 export const cvRankerRoleConfigSelect = {
@@ -21,8 +21,11 @@ export const cvRankerRoleConfigSelect = {
 export const cvRankResultSelect = {
   id: true,
   rankJobId: true,
+  applicationId: true,
   inputFileName: true,
   mimeType: true,
+  storageKey: true,
+  sizeBytes: true,
   status: true,
   name: true,
   email: true,
@@ -69,8 +72,38 @@ export type CreateCvRankJobRepositoryInput = {
   jobDescription: string;
   metrics: CvRankMetricDefinition[];
   webhookUrl?: string;
-  files: UploadedCvFile[];
+  files: SavedCvFile[];
 };
+
+export const applicationRankJobSelect = {
+  id: true,
+  title: true,
+  description: true,
+  status: true,
+} satisfies Prisma.JobSelect;
+
+export const applicationForRankSelect = {
+  id: true,
+  resumeStorageKey: true,
+  resumeFileName: true,
+  resumeMimeType: true,
+  resumeSizeBytes: true,
+  candidate: {
+    select: {
+      firstName: true,
+      lastName: true,
+      email: true,
+    },
+  },
+} satisfies Prisma.ApplicationSelect;
+
+export type ApplicationRankJobRecord = Prisma.JobGetPayload<{
+  select: typeof applicationRankJobSelect;
+}>;
+
+export type ApplicationForRankRecord = Prisma.ApplicationGetPayload<{
+  select: typeof applicationForRankSelect;
+}>;
 
 export type CompleteCvRankResultInput = {
   name: string | null;
@@ -100,7 +133,10 @@ export type CvRankerRepository = {
     },
   ): Promise<CvRankerRoleConfigRecord>;
   createRankJob(input: CreateCvRankJobRepositoryInput): Promise<CvRankJobDetailRecord>;
+  findJobForApplicationRank(jobId: string): Promise<ApplicationRankJobRecord | null>;
+  listApplicationsForApplicationRank(jobId: string): Promise<ApplicationForRankRecord[]>;
   findRankJobById(id: string): Promise<CvRankJobDetailRecord | null>;
+  findRecoverableRankJobs(): Promise<CvRankJobDetailRecord[]>;
   updateRankJobStatus(
     id: string,
     input: {
@@ -183,8 +219,11 @@ export const createCvRankerRepository = (
             await tx.cvRankResult.create({
               data: {
                 rankJobId: rankJob.id,
+                applicationId: file.applicationId,
                 inputFileName: file.originalName,
                 mimeType: file.mimeType,
+                storageKey: file.storageKey,
+                sizeBytes: file.sizeBytes,
               },
               select: cvRankResultSelect,
             }),
@@ -202,9 +241,33 @@ export const createCvRankerRepository = (
         };
       });
     },
+    async findJobForApplicationRank(jobId) {
+      return prisma.job.findUnique({
+        where: { id: jobId },
+        select: applicationRankJobSelect,
+      });
+    },
+    async listApplicationsForApplicationRank(jobId) {
+      return prisma.application.findMany({
+        where: { jobId },
+        orderBy: [{ submittedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        select: applicationForRankSelect,
+      });
+    },
     async findRankJobById(id) {
       return prisma.cvRankJob.findUnique({
         where: { id },
+        select: cvRankJobDetailSelect,
+      });
+    },
+    async findRecoverableRankJobs() {
+      return prisma.cvRankJob.findMany({
+        where: {
+          status: {
+            in: ["queued", "processing"],
+          },
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: cvRankJobDetailSelect,
       });
     },

@@ -161,6 +161,7 @@ export const env = Object.freeze({
     ),
   }),
   cvRanker: Object.freeze({
+    filesDir: resolve(uploadsRootDir, "cv-ranker"),
     maxFiles: parsePositiveInteger(
       process.env.CV_RANKER_MAX_FILES,
       "CV_RANKER_MAX_FILES",

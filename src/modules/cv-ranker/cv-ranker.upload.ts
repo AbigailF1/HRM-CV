@@ -1,9 +1,14 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { basename, extname, isAbsolute, relative, resolve } from "node:path";
+
 import multer from "multer";
 import type { Request, Response } from "express";
 
 import { env } from "../../config/env.js";
-import { ValidationError } from "../../shared/http/errors.js";
-import type { UploadedCvFile } from "./cv-ranker.types.js";
+import { logger } from "../../lib/logger.js";
+import { NotFoundError, ValidationError } from "../../shared/http/errors.js";
+import type { SavedCvFile, UploadedCvFile } from "./cv-ranker.types.js";
 
 const allowedCvMimeTypes = new Set([
   "application/pdf",
@@ -89,4 +94,102 @@ export const getUploadedCvFiles = (req: Request): UploadedCvFile[] => {
     sizeBytes: file.size,
     buffer: file.buffer,
   }));
+};
+
+const sanitizeFileName = (fileName: string) => {
+  const fileExtension = extname(fileName).toLowerCase();
+  const baseName = basename(fileName, fileExtension)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+
+  return `${baseName || "cv"}${fileExtension}`;
+};
+
+const buildCvStorageKey = (fileName: string) => {
+  return `${Date.now()}-${randomUUID()}-${sanitizeFileName(fileName)}`;
+};
+
+export const resolveCvStoragePath = (storageKey: string) => {
+  const normalizedStorageKey = storageKey.trim();
+
+  if (!normalizedStorageKey) {
+    throw new NotFoundError("CV file not found.", "CV_FILE_NOT_FOUND");
+  }
+
+  const storagePath = resolve(env.cvRanker.filesDir, normalizedStorageKey);
+  const relativePath = relative(env.cvRanker.filesDir, storagePath);
+
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new NotFoundError("CV file not found.", "CV_FILE_NOT_FOUND");
+  }
+
+  return storagePath;
+};
+
+export const saveCvFile = async (file: UploadedCvFile): Promise<SavedCvFile> => {
+  try {
+    await mkdir(env.cvRanker.filesDir, { recursive: true });
+
+    const storageKey = buildCvStorageKey(file.originalName);
+    const storagePath = resolveCvStoragePath(storageKey);
+
+    await writeFile(storagePath, file.buffer);
+
+    return {
+      storageKey,
+      storagePath,
+      originalName: file.originalName,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+    };
+  } catch (error) {
+    logger.error(
+      {
+        fileName: file.originalName,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        err: error instanceof Error ? error : undefined,
+      },
+      "failed to persist cv ranker upload",
+    );
+    throw error;
+  }
+};
+
+export const readSavedCvFile = async (input: {
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number | null;
+}): Promise<UploadedCvFile> => {
+  const storagePath = resolveCvStoragePath(input.storageKey);
+
+  try {
+    const buffer = await readFile(storagePath);
+
+    return {
+      originalName: input.originalName,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes ?? buffer.length,
+      buffer,
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new NotFoundError("CV file not found.", "CV_FILE_NOT_FOUND");
+    }
+
+    throw error;
+  }
+};
+
+export const deleteSavedCvFile = async (storagePath: string) => {
+  try {
+    await unlink(storagePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
 };

@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 import { Prisma } from "@prisma/client";
 
 import { logger } from "../../lib/logger.js";
@@ -24,7 +26,10 @@ import {
   normalizeMetricDefinitions,
   scoreMetrics,
 } from "./cv-ranker.scoring.js";
+import { deleteSavedCvFile, readSavedCvFile, saveCvFile } from "./cv-ranker.upload.js";
+import { resolveResumeStoragePath } from "../jobs/jobs.upload.js";
 import type {
+  CreateApplicationCvRankJobInput,
   CreateCvRankJobInput,
   CvRankJobResponse,
   CvRankMetricDefinition,
@@ -32,6 +37,7 @@ import type {
   CvRankerRoleConfigResponse,
   CvRankerRoleTypeValue,
   ExtractedCandidateData,
+  SavedCvFile,
   UploadedCvFile,
   UpdateCvRankerRoleConfigInput,
 } from "./cv-ranker.types.js";
@@ -48,12 +54,13 @@ export type CvRankerService = {
   ): Promise<CvRankerRoleConfigResponse>;
   generateCustomMetrics(jobDescription: string): Promise<CvRankMetricDefinition[]>;
   startRankJob(input: CreateCvRankJobInput, files: UploadedCvFile[]): Promise<CvRankJobResponse>;
-  getRankJob(id: string): Promise<CvRankJobResponse>;
-  processRankJob(
+  startApplicationRankJob(
     jobId: string,
-    metrics: CvRankMetricDefinition[],
-    filesByResultId: Map<string, UploadedCvFile>,
-  ): Promise<void>;
+    input: CreateApplicationCvRankJobInput,
+  ): Promise<CvRankJobResponse>;
+  getRankJob(id: string): Promise<CvRankJobResponse>;
+  processRankJob(jobId: string): Promise<void>;
+  recoverPendingRankJobs(): Promise<number>;
 };
 
 const roleConfigDefaults = [
@@ -133,6 +140,7 @@ const readExtractedData = (value: unknown): ExtractedCandidateData | null => {
 const mapRankResultResponse = (result: CvRankResultRecord): CvRankResultResponse => {
   return {
     id: result.id,
+    application_id: result.applicationId,
     status: result.status,
     input_file_name: result.inputFileName,
     name: result.name,
@@ -193,6 +201,10 @@ const messageFromError = (error: unknown) => {
   return error instanceof Error ? error.message : "Unknown error.";
 };
 
+const buildJobDescriptionFromJob = (job: { title: string; description: string | null }) => {
+  return [job.title, job.description].filter(Boolean).join("\n\n").trim();
+};
+
 const sendWebhook = async (webhookUrl: string | null, payload: CvRankJobResponse) => {
   if (!webhookUrl) {
     return;
@@ -227,7 +239,12 @@ export const createCvRankerService = (
   const ensureDefaultConfigs = async () => {
     defaultsEnsured ??= Promise.all(
       roleConfigDefaults.map((config) => repository.upsertRoleConfig(config)),
-    ).then(() => undefined);
+    )
+      .then(() => undefined)
+      .catch((error) => {
+        defaultsEnsured = null;
+        throw error;
+      });
 
     return defaultsEnsured;
   };
@@ -318,28 +335,106 @@ export const createCvRankerService = (
       }
 
       const normalizedMetrics = normalizeMetricDefinitions(metrics, input.weights);
-      const rankJob = await repository.createRankJob({
-        roleType: input.roleType,
-        jobDescription,
-        metrics: normalizedMetrics,
-        webhookUrl: input.webhookUrl,
-        files,
-      });
-      const filesByResultId = new Map<string, UploadedCvFile>();
+      const savedFiles: SavedCvFile[] = [];
 
-      rankJob.results.forEach((result, index) => {
-        const file = files[index];
-
-        if (file) {
-          filesByResultId.set(result.id, file);
+      try {
+        for (const file of files) {
+          savedFiles.push(await saveCvFile(file));
         }
-      });
 
-      setTimeout(() => {
-        void service.processRankJob(rankJob.id, normalizedMetrics, filesByResultId);
-      }, 0);
+        const rankJob = await repository.createRankJob({
+          roleType: input.roleType,
+          jobDescription,
+          metrics: normalizedMetrics,
+          webhookUrl: input.webhookUrl,
+          files: savedFiles,
+        });
 
-      return mapRankJobResponse(rankJob);
+        setTimeout(() => {
+          void service.processRankJob(rankJob.id);
+        }, 0);
+
+        return mapRankJobResponse(rankJob);
+      } catch (error) {
+        await Promise.allSettled(
+          savedFiles.map((file) => deleteSavedCvFile(file.storagePath)),
+        );
+        throw error;
+      }
+    },
+    async startApplicationRankJob(jobId, input) {
+      const job = await repository.findJobForApplicationRank(jobId);
+
+      if (!job) {
+        throw new NotFoundError("Job not found.");
+      }
+
+      const applications = await repository.listApplicationsForApplicationRank(jobId);
+
+      if (applications.length === 0) {
+        throw new BadRequestError(
+          "This job does not have applications to rank.",
+          "NO_APPLICATIONS_TO_RANK",
+        );
+      }
+
+      const roleType = input.roleType ?? "Custom";
+      const jobDescription = input.jobDescription?.trim() || buildJobDescriptionFromJob(job);
+
+      if (!jobDescription) {
+        throw new ValidationError("Job description is required.", "JOB_DESCRIPTION_REQUIRED");
+      }
+
+      let metrics = input.metrics;
+
+      if (!metrics) {
+        if (roleType === "Custom") {
+          metrics = await service.generateCustomMetrics(jobDescription);
+        } else {
+          const config = await getStoredRoleConfig(roleType);
+          metrics = parseMetricsFromJson(config.metrics);
+        }
+      }
+
+      const normalizedMetrics = normalizeMetricDefinitions(metrics, input.weights);
+      const savedFiles: SavedCvFile[] = [];
+
+      try {
+        for (const application of applications) {
+          const storagePath = resolveResumeStoragePath(application.resumeStorageKey);
+          const buffer = await readFile(storagePath);
+          const savedFile = await saveCvFile({
+            originalName: application.resumeFileName,
+            mimeType: application.resumeMimeType || "application/octet-stream",
+            sizeBytes: application.resumeSizeBytes ?? buffer.length,
+            buffer,
+          });
+
+          savedFiles.push({
+            ...savedFile,
+            applicationId: application.id,
+          });
+        }
+
+        const rankJob = await repository.createRankJob({
+          roleType,
+          jobDescription,
+          metrics: normalizedMetrics,
+          webhookUrl: input.webhookUrl,
+          files: savedFiles,
+        });
+
+        setTimeout(() => {
+          void service.processRankJob(rankJob.id);
+        }, 0);
+
+        return mapRankJobResponse(rankJob);
+      } catch (error) {
+        await Promise.allSettled(
+          savedFiles.map((file) => deleteSavedCvFile(file.storagePath)),
+        );
+        throw error;
+      }
     },
     async getRankJob(id) {
       const rankJob = await repository.findRankJobById(id);
@@ -350,9 +445,7 @@ export const createCvRankerService = (
 
       return mapRankJobResponse(rankJob);
     },
-    async processRankJob(jobId, metrics, filesByResultId) {
-      let completedCount = 0;
-      let failedCount = 0;
+    async processRankJob(jobId) {
       let finalJob: CvRankJobDetailRecord | null = null;
 
       try {
@@ -367,15 +460,23 @@ export const createCvRankerService = (
           throw new NotFoundError("CV rank job not found.", "CV_RANK_JOB_NOT_FOUND");
         }
 
-        for (const result of rankJob.results) {
-          const file = filesByResultId.get(result.id);
+        const metrics = parseMetricsFromJson(rankJob.metrics);
+        let completedCount = rankJob.results.filter(
+          (result) => result.status === "completed",
+        ).length;
+        let failedCount = rankJob.results.filter((result) => result.status === "failed").length;
 
-          if (!file) {
+        for (const result of rankJob.results) {
+          if (result.status === "completed" || result.status === "failed") {
+            continue;
+          }
+
+          if (!result.storageKey) {
             failedCount += 1;
             await repository.updateRankResultStatus(
               result.id,
               "failed",
-              "Uploaded CV buffer was not available for processing.",
+              "Uploaded CV file was not available for recovery.",
             );
             continue;
           }
@@ -383,6 +484,12 @@ export const createCvRankerService = (
           try {
             await repository.updateRankResultStatus(result.id, "processing");
 
+            const file = await readSavedCvFile({
+              storageKey: result.storageKey,
+              originalName: result.inputFileName,
+              mimeType: result.mimeType,
+              sizeBytes: result.sizeBytes,
+            });
             const cvText = await extractTextFromCv(file);
 
             if (cvText.length < 20) {
@@ -442,6 +549,17 @@ export const createCvRankerService = (
           completedAt: new Date(),
         });
       }
+    },
+    async recoverPendingRankJobs() {
+      const recoverableJobs = await repository.findRecoverableRankJobs();
+
+      for (const rankJob of recoverableJobs) {
+        setTimeout(() => {
+          void service.processRankJob(rankJob.id);
+        }, 0);
+      }
+
+      return recoverableJobs.length;
     },
   };
 
