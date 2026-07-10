@@ -14,6 +14,7 @@ const DEFAULT_PUBLIC_READ_LIMIT = 60;
 const DEFAULT_AUTH_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_AUTH_LIMIT = 100;
 const DEFAULT_MAX_CV_RANKER_FILES = 10;
+const DEFAULT_RATE_LIMIT_ENABLED = process.env.NODE_ENV !== "test";
 
 const readRequiredEnv = (name: string) => {
   const value = process.env[name]?.trim();
@@ -190,7 +191,7 @@ export const env = Object.freeze({
     }),
   }),
   rateLimit: Object.freeze({
-    enabled: parseBoolean(process.env.RATE_LIMIT_ENABLED, true),
+    enabled: parseBoolean(process.env.RATE_LIMIT_ENABLED, DEFAULT_RATE_LIMIT_ENABLED),
     trustProxyHops: parseNonNegativeInteger(
       process.env.TRUST_PROXY_HOPS,
       "TRUST_PROXY_HOPS",
